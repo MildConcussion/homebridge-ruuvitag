@@ -1,22 +1,25 @@
 {
-  "name": "homebridge-plugin-name",
-  "displayName": "Plugin Name",
+  "name": "homebridge-ruuvitag",
+  "displayName": "Ruuvitag for Homebridge",
   "type": "module",
   "version": "1.0.0",
   "private": true,
-  "description": "A short description about what your plugin does.",
-  "author": "Your Name",
+  "description": "A plugin for Homebridge that allows you to use Ruuvitag sensors.",
+  "author": "Rasmus",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/USERNAME/GITHUB_PROJECT_NAME#readme",
+  "homepage": "https://github.com/MildConcussion/homebridge-ruuvitag#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "https://github.com/MildConcussion/homebridge-ruuvitag.git"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/MildConcussion/homebridge-ruuvitag/issues"
   },
   "keywords": [
-    "homebridge-plugin"
+    "homebridge-plugin",
+    "ruuvitag",
+    "bluetooth",
+    "sensor"
   ],
   "main": "dist/index.js",
   "engines": {
@@ -30,7 +33,11 @@
     "watch": "npm run build && npm link && nodemon"
   },
   "dependencies": {
-    "homebridge-lib": "^7.1.4"
+    "homebridge-lib": "^7.1.4",
+    "debug": "~4.3.7",
+    "node-addon-api": "^8.1.0",
+    "node-ruuvitag": "^5.1.0",
+    "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

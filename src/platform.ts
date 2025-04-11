@@ -1,7 +1,10 @@
 import type { API, Characteristic, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
 
-import { ExamplePlatformAccessory } from './platformAccessory.js';
+import { RuuvitagAccessory } from './ruuvitagAccessory';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+
+import * as ruuvi from 'node-ruuvitag';
+import { io } from 'socket.io-client';
 
 // This is only required when using Custom Services and Characteristics not support by HomeKit
 import { EveHomeKitTypes } from 'homebridge-lib/EveHomeKitTypes';
@@ -11,7 +14,7 @@ import { EveHomeKitTypes } from 'homebridge-lib/EveHomeKitTypes';
  * This class is the main constructor for your plugin, this is where you should
  * parse the user config and discover/register accessories with Homebridge.
  */
-export class ExampleHomebridgePlatform implements DynamicPlatformPlugin {
+export class RuuvitagPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
 
@@ -24,6 +27,10 @@ export class ExampleHomebridgePlatform implements DynamicPlatformPlugin {
   public readonly CustomServices: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public readonly CustomCharacteristics: any;
+
+  private socket: any;
+  private waitingTags: Record<string, (tag: any) => void> = {};
+  private tags: Record<string, any> = {};
 
   constructor(
     public readonly log: Logging,
@@ -67,84 +74,88 @@ export class ExampleHomebridgePlatform implements DynamicPlatformPlugin {
    * must not be registered again to prevent "duplicate UUID" errors.
    */
   discoverDevices() {
-    // EXAMPLE ONLY
-    // A real plugin you would discover accessories from the local network, cloud services
-    // or a user-defined array in the platform config.
-    const exampleDevices = [
-      {
-        exampleUniqueId: 'ABCD',
-        exampleDisplayName: 'Bedroom',
-      },
-      {
-        exampleUniqueId: 'EFGH',
-        exampleDisplayName: 'Kitchen',
-      },
-      {
-        // This is an example of a device which uses a Custom Service
-        exampleUniqueId: 'IJKL',
-        exampleDisplayName: 'Backyard',
-        CustomService: 'AirPressureSensor',
-      },
-    ];
-
-    // loop over the discovered devices and register each one if it has not already been registered
-    for (const device of exampleDevices) {
-      // generate a unique id for the accessory this should be generated from
-      // something globally unique, but constant, for example, the device serial
-      // number or MAC address
-      const uuid = this.api.hap.uuid.generate(device.exampleUniqueId);
-
-      // see if an accessory with the same uuid has already been registered and restored from
-      // the cached devices we stored in the `configureAccessory` method above
-      const existingAccessory = this.accessories.get(uuid);
-
-      if (existingAccessory) {
-        // the accessory already exists
-        this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
-
-        // if you need to update the accessory.context then you should run `api.updatePlatformAccessories`. e.g.:
-        // existingAccessory.context.device = device;
-        // this.api.updatePlatformAccessories([existingAccessory]);
-
-        // create the accessory handler for the restored accessory
-        // this is imported from `platformAccessory.ts`
-        new ExamplePlatformAccessory(this, existingAccessory);
-
-        // it is possible to remove platform accessories at any time using `api.unregisterPlatformAccessories`, e.g.:
-        // remove platform accessories when no longer present
-        // this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingAccessory]);
-        // this.log.info('Removing existing accessory from cache:', existingAccessory.displayName);
-      } else {
-        // the accessory does not yet exist, so we need to create it
-        this.log.info('Adding new accessory:', device.exampleDisplayName);
-
-        // create a new accessory
-        const accessory = new this.api.platformAccessory(device.exampleDisplayName, uuid);
-
-        // store a copy of the device object in the `accessory.context`
-        // the `context` property can be used to store any data about the accessory you may need
-        accessory.context.device = device;
-
-        // create the accessory handler for the newly create accessory
-        // this is imported from `platformAccessory.ts`
-        new ExamplePlatformAccessory(this, accessory);
-
-        // link the accessory to your platform
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      }
-
-      // push into discoveredCacheUUIDs
-      this.discoveredCacheUUIDs.push(uuid);
+    // Check if socket connection is configured
+    if (this.config.socket) {
+      this.socket = io(this.config.socket);
+      this.log.debug('Socket set to:', this.config.socket);
+    } else {
+      // Use node-ruuvitag for direct Bluetooth discovery
+      ruuvi.on('found', (tag: any) => {
+        this.tags[tag.id] = tag;
+        if (this.waitingTags[tag.id]) {
+          this.waitingTags[tag.id](tag);
+          delete this.waitingTags[tag.id];
+        }
+        this.log.debug('Found Ruuvitag:', tag.id);
+        this.registerAccessory(tag.id, tag.id);
+      });
     }
 
-    // you can also deal with accessories from the cache which are no longer present by removing them from Homebridge
-    // for example, if your plugin logs into a cloud account to retrieve a device list, and a user has previously removed a device
-    // from this cloud account, then this device will no longer be present in the device list but will still be in the Homebridge cache
+    // Register accessories from config if provided
+    if (Array.isArray(this.config.tags)) {
+      for (const tagConfig of this.config.tags) {
+        if (tagConfig.id) {
+          this.registerAccessory(tagConfig.id, tagConfig.name || tagConfig.id, tagConfig);
+        }
+      }
+    }
+
+    // Clean up accessories no longer in config or discovered
     for (const [uuid, accessory] of this.accessories) {
       if (!this.discoveredCacheUUIDs.includes(uuid)) {
         this.log.info('Removing existing accessory from cache:', accessory.displayName);
         this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
     }
+  }
+
+  registerAccessory(id: string, displayName: string, config: any = {}) {
+    const uuid = this.api.hap.uuid.generate(id);
+    this.discoveredCacheUUIDs.push(uuid);
+
+    const existingAccessory = this.accessories.get(uuid);
+    if (existingAccessory) {
+      this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
+      new RuuvitagAccessory(this, existingAccessory);
+    } else {
+      this.log.info('Adding new accessory:', displayName);
+      const accessory = new this.api.platformAccessory(displayName, uuid);
+      accessory.context.device = { id, exampleDisplayName: displayName, ...config };
+      new RuuvitagAccessory(this, accessory);
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    }
+
+    // Set up listener for this tag
+    if (this.socket) {
+      this.tags[id] = { id };
+      const tag = this.tags[id];
+      this.listenToSocket(tag);
+    } else if (this.tags[id]) {
+      this.listenToTag(this.tags[id]);
+    } else {
+      this.waitingTags[id] = (tag: any) => {
+        this.listenToTag(tag);
+      };
+    }
+  }
+
+  listenToSocket(tag: any) {
+    this.socket.on('updated', (data: any) => {
+      if (data.tagId === tag.id) {
+        const accessory = this.accessories.get(this.api.hap.uuid.generate(tag.id));
+        if (accessory) {
+          (accessory.context.accessoryInstance as RuuvitagAccessory).update(tag, data);
+        }
+      }
+    });
+  }
+
+  listenToTag(tag: any) {
+    tag.on('updated', (data: any) => {
+      const accessory = this.accessories.get(this.api.hap.uuid.generate(tag.id));
+      if (accessory) {
+        (accessory.context.accessoryInstance as RuuvitagAccessory).update(tag, data);
+      }
+    });
   }
 }
