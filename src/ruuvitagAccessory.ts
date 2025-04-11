@@ -1,6 +1,7 @@
 import type { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 
 import type { RuuvitagPlatform } from './platform.js';
+import { hypotenuse } from './utils.js';
 
 /**
  * Ruuvitag Accessory
@@ -33,19 +34,27 @@ export class RuuvitagAccessory {
   private motionTriggerValue?: number;
   private highHumidityTriggerValue?: number;
   private lowHumidityTriggerValue?: number;
+  private tagId: string;
+
+  // Store previous values separately from the ruuvi tag object
+  private previousValues: {
+    accelerationX?: number;
+    accelerationY?: number;
+    accelerationZ?: number;
+  } = {};
 
   constructor(
     private readonly platform: RuuvitagPlatform,
     private readonly accessory: PlatformAccessory,
   ) {
-    // Store a reference to this instance in the accessory context for easy access from platform
-    this.accessory.context.accessoryInstance = this;
+    // Don't store a reference to this instance in the accessory context
+    this.tagId = accessory.context.device.id;
 
     // Set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Ruuvitag')
       .setCharacteristic(this.platform.Characteristic.Model, 'Ruuvitag Sensor')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.context.device.id || 'Unknown');
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.tagId || 'Unknown');
 
     const config = this.accessory.context.device || {};
 
@@ -107,38 +116,74 @@ export class RuuvitagAccessory {
 
   update(tag: any, data: any) {
     const config = this.accessory.context.device || {};
-    const { temperature, humidity, battery, accelerationX, accelerationY, accelerationZ } = data;
-    const previous = tag.previousValues || {};
-    tag.previousValues = data;
+
+    // Detailed logging of what data we're receiving
+    this.platform.log.debug(`Raw data received for update on ${this.tagId}:`, JSON.stringify(data));
+
+    // Safely extract values
+    const temperature = this.parseFloat(data.temperature);
+    const humidity = this.parseFloat(data.humidity);
+    const battery = this.parseFloat(data.battery);
+    const accelerationX = this.parseFloat(data.accelerationX);
+    const accelerationY = this.parseFloat(data.accelerationY);
+    const accelerationZ = this.parseFloat(data.accelerationZ);
+
+    if (temperature === undefined && humidity === undefined && battery === undefined) {
+      this.platform.log.warn(`No valid data received for tag ${this.tagId}`);
+      return;
+    }
+
+    // Store values for next update but avoid modifying the tag object
+    const previousAccX = this.previousValues.accelerationX;
+    const previousAccY = this.previousValues.accelerationY;
+    const previousAccZ = this.previousValues.accelerationZ;
+
+    // Update our local previous values
+    if (accelerationX !== undefined) {
+      this.previousValues.accelerationX = accelerationX;
+    }
+    if (accelerationY !== undefined) {
+      this.previousValues.accelerationY = accelerationY;
+    }
+    if (accelerationZ !== undefined) {
+      this.previousValues.accelerationZ = accelerationZ;
+    }
 
     const now = Date.now();
     if (!config.frequency || (now - this.updatedAt) > config.frequency * 1000) {
       this.updatedAt = now;
 
-      if (this.tempService && temperature !== this.temperature) {
+      if (this.tempService && temperature !== undefined && temperature !== this.temperature) {
         this.temperature = temperature;
+        this.platform.log.debug(`Updating temperature to ${temperature} for ${this.tagId}`);
         this.tempService.getCharacteristic(this.platform.Characteristic.CurrentTemperature).updateValue(temperature);
       }
 
-      if (this.humidityService && humidity !== this.humidity) {
+      if (this.humidityService && humidity !== undefined && humidity !== this.humidity) {
         this.humidity = humidity;
+        this.platform.log.debug(`Updating humidity to ${humidity} for ${this.tagId}`);
         this.humidityService.getCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity).updateValue(humidity);
       }
 
-      const batteryLevel = Math.max(0, Math.min(100, (battery - 2000) / 1000 * 100));
-      if (batteryLevel !== this.batteryLevel) {
-        this.batteryLevel = batteryLevel;
-        this.batteryService.getCharacteristic(this.platform.Characteristic.BatteryLevel).updateValue(batteryLevel);
+      if (battery !== undefined) {
+        const batteryLevel = Math.max(0, Math.min(100, (battery - 2000) / 1000 * 100));
+        if (batteryLevel !== this.batteryLevel) {
+          this.batteryLevel = batteryLevel;
+          this.platform.log.debug(`Updating battery level to ${batteryLevel} for ${this.tagId}`);
+          this.batteryService.getCharacteristic(this.platform.Characteristic.BatteryLevel).updateValue(batteryLevel);
+        }
       }
     }
 
-    const batteryState = (battery < 2000) ? 1 : 0;
-    if (batteryState !== this.batteryState) {
-      this.batteryState = batteryState;
-      this.batteryService.getCharacteristic(this.platform.Characteristic.StatusLowBattery).updateValue(batteryState);
+    if (battery !== undefined) {
+      const batteryState = (battery < 2000) ? 1 : 0;
+      if (batteryState !== this.batteryState) {
+        this.batteryState = batteryState;
+        this.batteryService.getCharacteristic(this.platform.Characteristic.StatusLowBattery).updateValue(batteryState);
+      }
     }
 
-    if (this.heatTriggerService) {
+    if (this.heatTriggerService && temperature !== undefined) {
       const heatState = (temperature > this.heatTriggerValue!) ? 1 : 0;
       if (heatState !== this.heatState) {
         this.heatState = heatState;
@@ -146,7 +191,7 @@ export class RuuvitagAccessory {
       }
     }
 
-    if (this.coldTriggerService) {
+    if (this.coldTriggerService && temperature !== undefined) {
       const coldState = (temperature < this.coldTriggerValue!) ? 1 : 0;
       if (coldState !== this.coldState) {
         this.coldState = coldState;
@@ -154,7 +199,7 @@ export class RuuvitagAccessory {
       }
     }
 
-    if (this.highHumidityTriggerService) {
+    if (this.highHumidityTriggerService && humidity !== undefined) {
       const highHumidityState = (humidity > this.highHumidityTriggerValue!) ? 1 : 0;
       if (highHumidityState !== this.highHumidityState) {
         this.highHumidityState = highHumidityState;
@@ -162,7 +207,7 @@ export class RuuvitagAccessory {
       }
     }
 
-    if (this.lowHumidityTriggerService) {
+    if (this.lowHumidityTriggerService && humidity !== undefined) {
       const lowHumidityState = (humidity < this.lowHumidityTriggerValue!) ? 1 : 0;
       if (lowHumidityState !== this.lowHumidityState) {
         this.lowHumidityState = lowHumidityState;
@@ -170,11 +215,14 @@ export class RuuvitagAccessory {
       }
     }
 
-    if (this.motionTriggerService) {
-      const deltaX = previous ? (previous.accelerationX - accelerationX) : 0;
-      const deltaY = previous ? (previous.accelerationY - accelerationY) : 0;
-      const deltaZ = previous ? (previous.accelerationZ - accelerationZ) : 0;
-      const movement = previous ? (Math.sqrt(Math.pow(deltaX, 2) + Math.pow(deltaY, 2) + Math.pow(deltaZ, 2)) / 1000) : 0;
+    if (this.motionTriggerService &&
+        accelerationX !== undefined && previousAccX !== undefined &&
+        accelerationY !== undefined && previousAccY !== undefined &&
+        accelerationZ !== undefined && previousAccZ !== undefined) {
+      const deltaX = previousAccX - accelerationX;
+      const deltaY = previousAccY - accelerationY;
+      const deltaZ = previousAccZ - accelerationZ;
+      const movement = hypotenuse(deltaX, deltaY, deltaZ) / 1000;
       const motionState = movement > this.motionTriggerValue!;
       if (motionState !== this.motionState) {
         this.motionState = motionState;
@@ -182,6 +230,22 @@ export class RuuvitagAccessory {
       }
     }
 
-    this.platform.log.debug('Updated Ruuvitag data:', data);
+    this.platform.log.debug('Updated Ruuvitag data for', this.tagId);
+  }
+
+  /**
+   * Parse a value safely to float
+   */
+  private parseFloat(value: any): number | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+
+    const parsed = Number(value);
+    if (isNaN(parsed)) {
+      return undefined;
+    }
+
+    return parsed;
   }
 }

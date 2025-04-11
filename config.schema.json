@@ -10,7 +10,148 @@
         "title": "Name",
         "type": "string",
         "required": true,
-        "default": "Example Dynamic Platform"
+        "default": "Ruuvitag Platform"
+      },
+      "socket": {
+        "title": "Socket URL",
+        "type": "string",
+        "required": false,
+        "description": "Optional URL to a socket.io server that emits Ruuvitag data. If not provided, direct Bluetooth discovery will be used."
+      },
+      "tags": {
+        "type": "array",
+        "title": "Ruuvitag Devices",
+        "description": "Configure Ruuvitag sensors to include in Homebridge",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Ruuvitag ID",
+              "type": "string",
+              "required": true,
+              "description": "The MAC address or ID of the Ruuvitag sensor"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": false,
+              "description": "Display name for this sensor in HomeKit (defaults to ID if not provided)"
+            },
+            "disableTemp": {
+              "title": "Disable Temperature",
+              "type": "boolean",
+              "default": false,
+              "description": "Set to true to disable the temperature sensor"
+            },
+            "disableHumidity": {
+              "title": "Disable Humidity",
+              "type": "boolean",
+              "default": false,
+              "description": "Set to true to disable the humidity sensor"
+            },
+            "frequency": {
+              "title": "Update Frequency",
+              "type": "integer",
+              "default": 0,
+              "description": "Minimum time between updates in seconds (0 means update on every change)"
+            },
+            "heatTrigger": {
+              "type": "object",
+              "title": "Heat Trigger",
+              "description": "Configure a contact sensor that triggers when temperature exceeds a threshold",
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string",
+                  "required": false,
+                  "description": "Display name for the heat trigger (defaults to sensor name)"
+                },
+                "value": {
+                  "title": "Threshold",
+                  "type": "number",
+                  "default": 25,
+                  "description": "Temperature threshold in degrees Celsius"
+                }
+              }
+            },
+            "coldTrigger": {
+              "type": "object",
+              "title": "Cold Trigger",
+              "description": "Configure a contact sensor that triggers when temperature falls below a threshold",
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string",
+                  "required": false,
+                  "description": "Display name for the cold trigger (defaults to sensor name)"
+                },
+                "value": {
+                  "title": "Threshold",
+                  "type": "number",
+                  "default": 5,
+                  "description": "Temperature threshold in degrees Celsius"
+                }
+              }
+            },
+            "highHumidityTrigger": {
+              "type": "object",
+              "title": "High Humidity Trigger",
+              "description": "Configure a contact sensor that triggers when humidity exceeds a threshold",
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string",
+                  "required": false,
+                  "description": "Display name for the high humidity trigger (defaults to sensor name)"
+                },
+                "value": {
+                  "title": "Threshold",
+                  "type": "number",
+                  "default": 70,
+                  "description": "Humidity threshold in percent"
+                }
+              }
+            },
+            "lowHumidityTrigger": {
+              "type": "object",
+              "title": "Low Humidity Trigger",
+              "description": "Configure a contact sensor that triggers when humidity falls below a threshold",
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string",
+                  "required": false,
+                  "description": "Display name for the low humidity trigger (defaults to sensor name)"
+                },
+                "value": {
+                  "title": "Threshold",
+                  "type": "number",
+                  "default": 30,
+                  "description": "Humidity threshold in percent"
+                }
+              }
+            },
+            "motionTrigger": {
+              "type": "object",
+              "title": "Motion Trigger",
+              "description": "Configure a motion sensor that detects movement of the Ruuvitag",
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string",
+                  "required": false,
+                  "description": "Display name for the motion trigger (defaults to sensor name)"
+                },
+                "value": {
+                  "title": "Threshold",
+                  "type": "number",
+                  "default": 0.1,
+                  "description": "Movement sensitivity threshold"
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
